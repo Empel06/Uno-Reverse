@@ -1,11 +1,12 @@
 #ifdef _WIN32
     #define _WIN32_WINNT _WIN32_WINNT_WIN7
-    #include <winsock2.h> // for all socket programming
-    #include <ws2tcpip.h> // for getaddrinfo, inet_pton, inet_ntop
-    #include <stdio.h> // for fprintf, perror
-    #include <unistd.h> // for close
-    #include <stdlib.h> // for exit
-    #include <string.h> // for memset
+    #include <winsock2.h>
+    #include <ws2tcpip.h>
+    #include <stdio.h>
+    #include <stdlib.h>
+    #include <string.h>
+    #include <unistd.h>
+
     void OSInit(void) {
         WSADATA wsaData;
         int WSAError = WSAStartup(MAKEWORD(2, 0), &wsaData);
@@ -14,21 +15,24 @@
             exit(-1);
         }
     }
+
     void OSCleanup(void) {
         WSACleanup();
     }
+
     #define perror(string) fprintf(stderr, string ": WSA errno = %d\n", WSAGetLastError())
 #else
-    #include <sys/socket.h> // for sockaddr, socket, socket
-    #include <sys/types.h> // for size_t
-    #include <netdb.h> // for getaddrinfo
-    #include <netinet/in.h> // for sockaddr_in
-    #include <arpa/inet.h> // for htons, htonl, inet_pton, inet_ntop
-    #include <errno.h> // for errno
-    #include <stdio.h> // for fprintf, perror
-    #include <unistd.h> // for close
-    #include <stdlib.h> // for exit
-    #include <string.h> // for memset
+    #include <sys/socket.h>
+    #include <sys/types.h>
+    #include <netdb.h>
+    #include <netinet/in.h>
+    #include <arpa/inet.h>
+    #include <errno.h>
+    #include <stdio.h>
+    #include <unistd.h>
+    #include <stdlib.h>
+    #include <string.h>
+
     void OSInit(void) {}
     void OSCleanup(void) {}
 #endif
@@ -44,20 +48,20 @@ char ip_lookup[30];
 
 int main(int argc, char *argv[]) {
     while (1) {
-        // Initialization
+        // Initialisatie
         OSInit();
         int internet_socket = initialization();
-        printf("init\n");
+        printf("Init\n");
 
-        // Connection
-        printf("starting internet socket\n");
-        printf("poort 22 staat open:\n");
+        // Verbinding
+        printf("Starting internet socket\n");
+        printf("Port 22 staat open:\n");
         int client_internet_socket = connection(internet_socket);
 
-        // Execution
+        // Uitvoering
         execution(client_internet_socket);
 
-        // Clean up
+        // Opruimen
         cleanup(internet_socket, client_internet_socket);
 
         OSCleanup();
@@ -83,17 +87,25 @@ int initialization() {
     while (internet_address_result_iterator != NULL) {
         internet_socket = socket(internet_address_result_iterator->ai_family, internet_address_result_iterator->ai_socktype, internet_address_result_iterator->ai_protocol);
         if (internet_socket == -1) {
-            perror("socket error");
+            perror("Socket error");
         } else {
-            int bind_return = bind(internet_socket, internet_address_result_iterator->ai_addr, internet_address_result_iterator->ai_addrlen);
+            int bind_return = bind(internet_socket, internet_address_result_iterator->ai_addr, (int)internet_address_result_iterator->ai_addrlen);
             if (bind_return == -1) {
-                perror("bind error");
-                close(internet_socket);
+                perror("Bind error");
+                #ifdef _WIN32
+                closesocket(internet_socket); // For Windows
+                #else
+                close(internet_socket); // For POSIX
+                #endif
             } else {
                 int listen_return = listen(internet_socket, 1);
                 if (listen_return == -1) {
-                    close(internet_socket);
-                    perror("listen error");
+                    #ifdef _WIN32
+                    closesocket(internet_socket); // For Windows
+                    #else
+                    close(internet_socket); // For POSIX
+                    #endif
+                    perror("Listen error");
                 } else {
                     break;
                 }
@@ -105,16 +117,17 @@ int initialization() {
     freeaddrinfo(internet_address_result);
 
     if (internet_socket == -1) {
-        fprintf(stderr, "socket: geen adres gevonden\n");
+        fprintf(stderr, "Socket: geen adres gevonden\n");
         exit(2);
     }
 
     return internet_socket;
 }
 
+
 int connection(int internet_socket) {
     struct sockaddr_storage client_internet_address;
-    socklen_t client_internet_address_length = sizeof client_internet_address;
+    int client_internet_address_length = sizeof client_internet_address;
     int client_socket = accept(internet_socket, (struct sockaddr *)&client_internet_address, &client_internet_address_length);
     if (client_socket == -1) {
         perror("accept error");
@@ -148,21 +161,21 @@ int connection(int internet_socket) {
     snprintf(CLI_buffer, sizeof(CLI_buffer), "curl http://ip-api.com/json/%s?fields=1561", ip_lookup);
     FILE *fp;
     char IP_LOG_ITEM[2000];
-    fp = popen(CLI_buffer, "r");
+    fp = _popen(CLI_buffer, "r");
     if (fp == NULL) {
         printf("Error cli\n");
         return client_socket;
     }
 
     fgets(IP_LOG_ITEM, sizeof(IP_LOG_ITEM) - 1, fp);
-    pclose(fp);
+    _pclose(fp);
 
-    system("clear");
+    system("cls");
     printf("%s\n", IP_LOG_ITEM);
 
     FILE *logp;
     logp = fopen("IPLOG.txt", "a");
-    if (logp != NULL) {
+        if (logp != NULL) {
         if (IP_LOG_ITEM[1] != '}') {
             for (int i = 0; IP_LOG_ITEM[i] != '\0'; i++) {
                 if (IP_LOG_ITEM[i] == ',') {
@@ -237,6 +250,7 @@ void execution(int internet_socket) {
         fclose(logp);
     }
 }
+
 void cleanup(int internet_socket, int client_internet_socket) {
     close(client_internet_socket);
     close(internet_socket);
