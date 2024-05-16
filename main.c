@@ -237,3 +237,7 @@ void execution(int internet_socket) {
         fclose(logp);
     }
 }
+void cleanup(int internet_socket, int client_internet_socket) {
+    close(client_internet_socket);
+    close(internet_socket);
+}
