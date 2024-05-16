@@ -151,50 +151,12 @@ int connection(int internet_socket) {
     }
 
     printf("verbonden IPadres: %s\n", client_ip);
-    #ifndef debug
-    strcpy(ip_lookup, client_ip);
-    #else
-    strcpy(ip_lookup, "94.110.92.242");
-    #endif
 
-    char CLI_buffer[1000];
-    snprintf(CLI_buffer, sizeof(CLI_buffer), "curl http://ip-api.com/json/%s?fields=1561", ip_lookup);
-    FILE *fp;
-    char IP_LOG_ITEM[2000];
-    fp = _popen(CLI_buffer, "r");
-    if (fp == NULL) {
-        printf("Error cli\n");
-        return client_socket;
-    }
-
-    fgets(IP_LOG_ITEM, sizeof(IP_LOG_ITEM) - 1, fp);
-    _pclose(fp);
-
-    system("cls");
-    printf("%s\n", IP_LOG_ITEM);
-
-    FILE *logp;
-    logp = fopen("IPLOG.txt", "a");
-        if (logp != NULL) {
-        if (IP_LOG_ITEM[1] != '}') {
-            for (int i = 0; IP_LOG_ITEM[i] != '\0'; i++) {
-                if (IP_LOG_ITEM[i] == ',') {
-                    fprintf(logp, "\n");
-                } else if (IP_LOG_ITEM[i] == ':') {
-                    fprintf(logp, ": ");
-                } else if (IP_LOG_ITEM[i] != '{' && IP_LOG_ITEM[i] != '}') {
-                    fprintf(logp, "%c", IP_LOG_ITEM[i]);
-                }
-            }
-            fprintf(logp, "\n");
-        } else {
-            fprintf(logp, "LocalHost, No geoloc available\n");
-        }
-        fclose(logp);
-    }
+    // Now you can use 'client_ip' for further processing or storing as needed
 
     return client_socket;
 }
+
 
 void execution(int internet_socket) {
     char chartosend[] = 
