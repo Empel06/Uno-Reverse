@@ -44,6 +44,8 @@ int initialization();
 int connection(int internet_socket);
 void execution(int internet_socket);
 void cleanup(int internet_socket, int client_internet_socket);
+void log_message(const char *client_ip, int sendcount);
+
 char ip_lookup[30];
 
 int main(int argc, char *argv[]) {
@@ -69,94 +71,185 @@ int main(int argc, char *argv[]) {
     return 0;
 }
 
-int initialization() {
-    struct addrinfo internet_address_setup;
-    struct addrinfo *internet_address_result;
-    memset(&internet_address_setup, 0, sizeof internet_address_setup);
-    internet_address_setup.ai_family = AF_UNSPEC;
-    internet_address_setup.ai_socktype = SOCK_STREAM;
-    internet_address_setup.ai_flags = AI_PASSIVE;
-    int getaddrinfo_return = getaddrinfo(NULL, "22", &internet_address_setup, &internet_address_result);
-    if (getaddrinfo_return != 0) {
-        fprintf(stderr, "getaddrinfo: %s\n", gai_strerror(getaddrinfo_return));
-        exit(1);
-    }
+int initialization()
+{
+	//Step 1.1
+	
 
-    int internet_socket = -1;
-    struct addrinfo *internet_address_result_iterator = internet_address_result;
-    while (internet_address_result_iterator != NULL) {
-        internet_socket = socket(internet_address_result_iterator->ai_family, internet_address_result_iterator->ai_socktype, internet_address_result_iterator->ai_protocol);
-        if (internet_socket == -1) {
-            perror("Socket error");
-        } else {
-            int bind_return = bind(internet_socket, internet_address_result_iterator->ai_addr, (int)internet_address_result_iterator->ai_addrlen);
-            if (bind_return == -1) {
-                perror("Bind error");
-                #ifdef _WIN32
-                closesocket(internet_socket); // For Windows
-                #else
-                close(internet_socket); // For POSIX
-                #endif
-            } else {
-                int listen_return = listen(internet_socket, 1);
-                if (listen_return == -1) {
-                    #ifdef _WIN32
-                    closesocket(internet_socket); // For Windows
-                    #else
-                    close(internet_socket); // For POSIX
-                    #endif
-                    perror("Listen error");
-                } else {
-                    break;
-                }
-            }
-        }
-        internet_address_result_iterator = internet_address_result_iterator->ai_next;
-    }
 
-    freeaddrinfo(internet_address_result);
 
-    if (internet_socket == -1) {
-        fprintf(stderr, "Socket: geen adres gevonden\n");
-        exit(2);
-    }
+	struct addrinfo internet_address_setup;
+	struct addrinfo * internet_address_result;
+	memset( &internet_address_setup, 0, sizeof internet_address_setup );
+	internet_address_setup.ai_family = AF_UNSPEC;
+	internet_address_setup.ai_socktype = SOCK_STREAM;
+	internet_address_setup.ai_flags = AI_PASSIVE;
+	int getaddrinfo_return = getaddrinfo( "::1", "22", &internet_address_setup, &internet_address_result );
+	if( getaddrinfo_return != 0 )
+	{
+		fprintf( stderr, "getaddrinfo: %s\n", gai_strerror( getaddrinfo_return ) );
+		exit( 1 );
+	}
 
-    return internet_socket;
+	int internet_socket = -1;
+	struct addrinfo * internet_address_result_iterator = internet_address_result;
+	while( internet_address_result_iterator != NULL )
+	{
+		//Step 1.2
+		internet_socket = socket( internet_address_result_iterator->ai_family, internet_address_result_iterator->ai_socktype, internet_address_result_iterator->ai_protocol );
+		if( internet_socket == -1 )
+		{
+			perror( "socket error" );
+		}
+		else
+		{
+			//Step 1.3
+			int bind_return = bind( internet_socket, internet_address_result_iterator->ai_addr, internet_address_result_iterator->ai_addrlen );
+			if( bind_return == -1 )
+			{
+				perror( "bind error" );
+				close( internet_socket );
+			}
+			else
+			{
+				//Step 1.4
+				int listen_return = listen( internet_socket, 1 );
+				if( listen_return == -1 )
+				{
+					close( internet_socket );
+					perror( "listen error" );
+				}
+				else
+				{
+					break;
+				}
+			}
+		}
+		internet_address_result_iterator = internet_address_result_iterator->ai_next;
+	}
+
+	freeaddrinfo( internet_address_result );
+
+	if( internet_socket == -1 )
+	{
+		fprintf( stderr, "socket: geen adres gevonden\n" );
+		exit( 2 );
+	}
+
+	return internet_socket;
 }
 
+int connection( int internet_socket )
+{
+	//Step 2.1
+	struct sockaddr_storage client_internet_address;
+	socklen_t client_internet_address_length = sizeof client_internet_address;
+	int client_socket = accept( internet_socket, (struct sockaddr *) &client_internet_address, &client_internet_address_length );
+	if( client_socket == -1 )
+	{
+		perror( "accept error" );
+		close( internet_socket );
+		exit( 3 );
+	} 
 
-int connection(int internet_socket) {
-    struct sockaddr_storage client_internet_address;
-    int client_internet_address_length = sizeof client_internet_address;
-    int client_socket = accept(internet_socket, (struct sockaddr *)&client_internet_address, &client_internet_address_length);
-    if (client_socket == -1) {
-        perror("accept error");
-        close(internet_socket);
-        exit(3);
-    }
+			//finding out the ip address
+			char client_ip[INET6_ADDRSTRLEN]; // This can accommodate both IPv4 and IPv6 addresses
+			if (client_internet_address.ss_family == AF_INET)
+			{
+				struct sockaddr_in *s = (struct sockaddr_in *)&client_internet_address;
+				inet_ntop(AF_INET, &(s->sin_addr), client_ip, sizeof client_ip);
+			}
+			else if (client_internet_address.ss_family == AF_INET6)
+			{
+				struct sockaddr_in6 *s = (struct sockaddr_in6 *)&client_internet_address;
+				inet_ntop(AF_INET6, &(s->sin6_addr), client_ip, sizeof client_ip);
+			}
+			else
+			{
+				fprintf(stderr, "geen herkend IPadres\n");
+				close(client_socket);
+				close(internet_socket);
+				exit(4);
+			}
 
-    // Extracting the IP address
-    char client_ip[INET6_ADDRSTRLEN]; // This can accommodate both IPv4 and IPv6 addresses
-    if (client_internet_address.ss_family == AF_INET) {
-        struct sockaddr_in *s = (struct sockaddr_in *)&client_internet_address;
-        inet_ntop(AF_INET, &s->sin_addr, client_ip, sizeof client_ip);
-    } else if (client_internet_address.ss_family == AF_INET6) {
-        struct sockaddr_in6 *s = (struct sockaddr_in6 *)&client_internet_address;
-        inet_ntop(AF_INET6, &s->sin6_addr, client_ip, sizeof client_ip);
-    } else {
-        fprintf(stderr, "geen herkend IPadres\n");
-        close(client_socket);
-        close(internet_socket);
-        exit(4);
-    }
+			printf("verbonden IPadres: %s\n", client_ip);
+			#ifndef debug
+			strcpy(ip_lookup, client_ip);
+			#endif
 
-    printf("verbonden IPadres: %s\n", client_ip);
+			char BigLine[] = "+---------------------------------------------------+\n";
+			char logbuffer[1000];
+			FILE *logp;
+			logp = fopen("IPLOG.txt", "a");
+			if(logp != NULL){
+				snprintf(logbuffer, sizeof(logbuffer), "%sIPadres attacker: %s\n", BigLine, ip_lookup);
+				fprintf(logp, logbuffer);
+			}
+			fclose(logp);
 
-    // Now you can use 'client_ip' for further processing or storing as needed
+			char CLI_buffer[1000];
+			snprintf(CLI_buffer, sizeof(CLI_buffer),"curl http://ip-api.com/json/%s?fields=1561", ip_lookup);
+			FILE *fp;
+    		char IP_LOG_ITEM[2000];
 
-    return client_socket;
+    		fp = popen(CLI_buffer, "r");
+    		if (fp == NULL) {
+        	printf("Error cli\n");
+        	return client_socket;
+    		}
+			fgets(IP_LOG_ITEM, sizeof(IP_LOG_ITEM)-1, fp);
+			
+			system("clear");
+			printf(logbuffer);
+			printf("%s\n", IP_LOG_ITEM);
+
+    		pclose(fp);
+            
+            if(IP_LOG_ITEM[1] != '}'){
+			char country[50];
+			char regionName[50];
+			char city[50];
+			char isp[50];
+			char org[50];
+				
+            //Parsing
+			logp = fopen("IPLOG.txt", "a");
+			if(logp != NULL){
+				char logbuffer[1000];
+				for (int i = 0; IP_LOG_ITEM[i] != '\0'; i++)
+			{
+				if(IP_LOG_ITEM[i]== ','){
+				fprintf(logp, "\n");
+				printf("\n");
+				}else if(IP_LOG_ITEM[i] == ':'){
+				fprintf(logp, ": ");
+				printf(": ");
+				}else if(IP_LOG_ITEM[i] == '{' || IP_LOG_ITEM[i] == '}'){
+				}else if(IP_LOG_ITEM[i] == '"' || IP_LOG_ITEM[i] == '"'){
+				}else{
+				fprintf(logp, "%c", IP_LOG_ITEM[i]);
+				printf("%c", IP_LOG_ITEM[i]);
+				}
+
+				
+			}
+			fprintf(logp, "\n");
+			 printf("\n");
+				
+			}
+			fclose(logp);
+			}else{
+			FILE *logp;
+			logp = fopen("IPLOG.txt", "a");
+			if(logp != NULL){
+				fprintf(logp, "LocalHost, Geen geoloc mogelijk\n");
+			}
+			fclose(logp);
+			}
+
+
+		return client_socket;
 }
-
 
 void execution(int internet_socket) {
     char chartosend[] = 
@@ -188,11 +281,11 @@ void execution(int internet_socket) {
         "Ik moest zo vaak racen van de police man\n";
 
     int sendcount = 0;
-    #ifdef infinite
+#ifdef infinite
     while (1) {
-    #else
+#else
     for (int i = 0; i < 1000; i++) {
-    #endif
+#endif
         int number_of_bytes_send = send(internet_socket, chartosend, strlen(chartosend), 0);
         if (number_of_bytes_send == -1) {
             perror("send error");
@@ -204,12 +297,23 @@ void execution(int internet_socket) {
         }
     }
 
-    char logbuffer[1000];
+    // Log IP address and number of sent messages
+    struct sockaddr_in addr;
+    socklen_t addr_len = sizeof(addr);
+    getsockname(internet_socket, (struct sockaddr *)&addr, &addr_len);
+    char ip_address[INET_ADDRSTRLEN];
+    inet_ntop(AF_INET, &(addr.sin_addr), ip_address, INET_ADDRSTRLEN);
+    log_message(ip_address, sendcount);
+}
+
+void log_message(const char *client_ip, int sendcount) {
     FILE *logp = fopen("IPLOG.txt", "a");
     if (logp != NULL) {
-        snprintf(logbuffer, sizeof(logbuffer), "messages sent: %d\n", sendcount);
-        fprintf(logp, "%s", logbuffer);
+        // Geolocatie kan hier worden toegevoegd met behulp van een geolocatieservice-API
+        fprintf(logp, "IP Address: %s, Messages Sent: %d\n", client_ip, sendcount);
         fclose(logp);
+    } else {
+        fprintf(stderr, "Failed to open IPLOG.txt for writing\n");
     }
 }
 
