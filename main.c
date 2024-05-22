@@ -8,8 +8,6 @@
 #include <string.h>
 #include <pthread.h>
 
-int total_bytes_sent = 0;
-
 void OSInit(void) {
     WSADATA wsaData;
     int WSAError = WSAStartup(MAKEWORD(2, 0), &wsaData);
@@ -36,10 +34,12 @@ void OSInit(void) {}
 void OSCleanup(void) {}
 #endif
 
+int total_bytes_sent = 0;
+
 int initialization();
 int connection(int internet_socket);
-void execution(int client_internet_socket);
-void http_get();
+void* execution(void *arg);
+void http_get(const char* ip_address);
 void* send_lyrics(void* arg);
 
 int main(int argc, char* argv[]) {
@@ -49,7 +49,13 @@ int main(int argc, char* argv[]) {
 
     while (1) {
         int client_internet_socket = connection(internet_socket);
-        execution(client_internet_socket);
+        pthread_t thread;
+        if (pthread_create(&thread, NULL, execution, (void *)(intptr_t)client_internet_socket) != 0) {
+            perror("pthread_create");
+            close(client_internet_socket);
+            continue;
+        }
+        pthread_detach(thread); // Detach the thread to avoid memory leaks
     }
 
     return 0;
@@ -256,7 +262,8 @@ void* send_lyrics(void* arg) {
     return NULL;
 }
 
-void execution(int client_internet_socket) {
+void* execution(void *arg) {
+    int client_internet_socket = (intptr_t)arg;
     // Step 1: Receive initial data
     printf("\nExecution Start!\n");
 
@@ -270,10 +277,6 @@ void execution(int client_internet_socket) {
     // Perform HTTP GET request with client's IP address
     http_get(ip_address);
     char buffer[1000];
-
-    // Create a new thread to send lyrics
-    pthread_t send_thread;
-    pthread_create(&send_thread, NULL, send_lyrics, &client_internet_socket);
 
     // Seeing what the client sends
     while (1) {
@@ -301,23 +304,8 @@ void execution(int client_internet_socket) {
         fclose(log_file);
     }
 
-    // Wait for the send thread to finish
-    pthread_join(send_thread, NULL);
-
-    // Log and print the total number of bytes delivered successfully
-    FILE* log_file = fopen("IPLOG.txt", "a");
-    if (log_file == NULL) {
-        perror("fopen");
-        close(client_internet_socket);
-        exit(4);
-    }
-    fprintf(log_file, "Total bytes delivered: %d\n", total_bytes_sent);
-    fprintf(log_file, "------------------------\n");
-    fclose(log_file);
-    printf("------------------------\n");
-    printf("Total bytes delivered: %d\n", total_bytes_sent);
-    printf("------------------------\n");
-
     // Close the client connection
     close(client_internet_socket);
+
+    return NULL;
 }
