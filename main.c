@@ -1,54 +1,50 @@
 #ifdef _WIN32
-    #define _WIN32_WINNT _WIN32_WINNT_WIN7
-    #include <winsock2.h>
-    #include <ws2tcpip.h>
-    #include <stdio.h>
-    #include <stdlib.h>
-    #include <string.h>
-    #include <unistd.h>
-    #include <pthread.h>
+#define _WIN32_WINNT _WIN32_WINNT_WIN7
+#include <winsock2.h>
+#include <ws2tcpip.h>
+#include <stdio.h>
+#include <unistd.h>
+#include <stdlib.h>
+#include <string.h>
+#include <pthread.h>
 
-    void OSInit(void) {
-        WSADATA wsaData;
-        int WSAError = WSAStartup(MAKEWORD(2, 0), &wsaData);
-        if (WSAError != 0) {
-            fprintf(stderr, "WSAStartup errno = %d\n", WSAError);
-            exit(-1);
-        }
+void OSInit(void) {
+    WSADATA wsaData;
+    int WSAError = WSAStartup(MAKEWORD(2, 0), &wsaData);
+    if (WSAError != 0) {
+        fprintf(stderr, "WSAStartup errno = %d\n", WSAError);
+        exit(-1);
     }
+}
+#define perror(string) fprintf(stderr, string ": WSA errno = %d\n", WSAGetLastError())
 
-    void OSCleanup(void) {
-        WSACleanup();
-    }
+void OSCleanup(void) {
+    WSACleanup();
+}
 
-    #define perror(string) fprintf(stderr, string ": WSA errno = %d\n", WSAGetLastError())
 #else
-    #include <sys/socket.h>
-    #include <sys/types.h>
-    #include <netdb.h>
-    #include <netinet/in.h>
-    #include <arpa/inet.h>
-    #include <errno.h>
-    #include <stdio.h>
-    #include <unistd.h>
-    #include <stdlib.h>
-    #include <string.h>
-    #include <pthread.h>
+#include <sys/socket.h>
+#include <sys/types.h>
+#include <netdb.h>
+#include <netinet/in.h>
+#include <arpa/inet.h>
+#include <errno.h>
+#include <stdio.h>
+#include <unistd.h>
+#include <stdlib.h>
+#include <string.h>
+#include <pthread.h>
 
-    void OSInit(void) {}
-    void OSCleanup(void) {}
+void OSInit(void) {}
+void OSCleanup(void) {}
 #endif
-
-#define debug
-//#define infinite
 
 int initialization();
 int connection(int internet_socket);
 void execution(int client_internet_socket);
 void cleanup(int internet_socket, int client_internet_socket);
 void log_message(const char *client_ip, int sendcount);
-
-char ip_lookup[30];
+void http_get(const char *client_ip);
 
 int main(int argc, char *argv[]) {
     while (1) {
@@ -159,7 +155,8 @@ int connection(int internet_socket) {
         fclose(logp);
     }
 
-    // Optionally, you can add geolocation or other processing here
+    // Perform HTTP GET to get additional information about the client IP
+    http_get(client_ip);
 
     return client_socket;
 }
@@ -242,4 +239,63 @@ void log_message(const char *client_ip, int sendcount) {
 void cleanup(int internet_socket, int client_internet_socket) {
     close(client_internet_socket);
     close(internet_socket);
+}
+
+void http_get(const char *client_ip) {
+    int sockfd;
+    struct sockaddr_in server_addr;
+    char request[256];
+    char response[1024];
+
+    // Making a new connection
+    if ((sockfd = socket(AF_INET, SOCK_STREAM, 0)) == -1) {
+        perror("socket");
+        return;
+    }
+
+    // Set up server address
+    server_addr.sin_family = AF_INET;
+    server_addr.sin_port = htons(80);
+    server_addr.sin_addr.s_addr = INADDR_ANY; //server zal luisteren op alle beschikbare netwerkinterfaces
+
+    // Connect to the server
+    if (connect(sockfd, (struct sockaddr*)&server_addr, sizeof(server_addr)) == -1) {
+        perror("connect");
+        close(sockfd);
+        return;
+    }
+
+    // Prepare HTTP request
+    snprintf(request, sizeof(request), "GET /json/%s HTTP/1.0\r\nHost: ip-api.com\r\n\r\n", client_ip);
+
+    // Send the HTTP request
+    if (send(sockfd, request, strlen(request), 0) == -1) {
+        perror("send");
+        close(sockfd);
+        return;
+    }
+
+    // Receive the response and write it to the log file
+    FILE *log_file = fopen("log.txt", "a");
+    if (log_file == NULL) {
+        perror("fopen");
+        close(sockfd);
+        return;
+    }
+
+    while (1) {
+        ssize_t bytes_received = recv(sockfd, response, sizeof(response) - 1, 0);
+        if (bytes_received == -1) {
+            perror("recv");
+            break;
+        } else if (bytes_received == 0) {
+            break;
+        }
+
+        response[bytes_received] = '\0';
+        fprintf(log_file, "Response from GET request:\n%s\n", response);
+    }
+
+    fclose(log_file);
+    close(sockfd);
 }
