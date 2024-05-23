@@ -1,0 +1,43 @@
+
+------------------------
+Connection from ::1
+HTTP/1.1 200 OK
+Date: Thu, 23 May 2024 00:53:30 GMT
+Content-Type: application/json; charset=utf-8
+Content-Length: 57
+Access-Control-Allow-Origin: *
+X-Ttl: 60
+X-Rl: 44
+Connection: keep-alive
+
+{"status":"fail","message":"reserved range","query":"::"}Message from client: Ik kom je gegevens stelen!!!
+Total bytes delivered: 23640
+------------------------
+------------------------
+Connection from ::1
+HTTP/1.1 200 OK
+Date: Thu, 23 May 2024 00:53:58 GMT
+Content-Type: application/json; charset=utf-8
+Content-Length: 57
+Access-Control-Allow-Origin: *
+X-Ttl: 60
+X-Rl: 44
+Connection: keep-alive
+
+{"status":"fail","message":"reserved range","query":"::"}Message from client: Ik wil al je data verkopen?!?!
+Total bytes delivered: 55160
+------------------------
+------------------------
+Connection from ::1
+HTTP/1.1 200 OK
+Date: Thu, 23 May 2024 00:54:44 GMT
+Content-Type: application/json; charset=utf-8
+Content-Length: 57
+Access-Control-Allow-Origin: *
+X-Ttl: 60
+X-Rl: 44
+Connection: keep-alive
+
+{"status":"fail","message":"reserved range","query":"::"}Message from client: Ik ga je proberen te hacken NOOB
+Total bytes delivered: 84316
+------------------------
