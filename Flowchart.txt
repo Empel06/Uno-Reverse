@@ -1,0 +1,102 @@
++----------------------+
+|        Start         |
++----------+-----------+
+           |
+           v
+   +------------------+
+   |    OSInit()      |         (Initialiseer het besturingssysteem)
+   +--------+---------+
+            |
+            v
+   +------------------+
+   | initialization() |         (Initialiseer de internetsocket)
+   +--------+---------+
+            |
+            v
+   +------------------+
+   |    Main Loop     |         (Start de hoofdloop)
+   +--------+---------+
+            |
+            | (Accepts Connection)
+            v
+   +------------------+
+   |   connection()   |         (Accepteer een inkomende verbinding)
+   +--------+---------+
+            |
+            v
+     +------|------+
+     |      v      |
++----+-------------+-------+
+|   Failed to Accept     |     (Mislukt om verbinding te accepteren)
+|       Connection       |
+|     (exit program)     |
++------------------------+
+            |
+            v
+   +------------------+
+   |  handle_client() |         (Behandel de geaccepteerde client)
+   +--------+---------+
+            |
+            v
+   +------------------+
+   |    execution()   |         (Voer de hoofdtaak uit)
+   +--------+---------+
+            |
+            | (Receives Data)
+            v
+   +------------------+
+   |      http_get()  |         (Voer een HTTP GET-verzoek uit)
+   +--------+---------+
+            |
+     +------|------+
+     |      v      |
++----+-------------+-------+
+|   Failed to Resolve     |     (Kan IP niet oplossen of verbinden met ip-api.com)
+|    IP or Connect to    |
+|      ip-api.com        |
++------------------------+
+            |
+            v
+   +------------------+
+   |  log_geolocation()|         (Log de geolocatie)
+   +--------+---------+
+            |
+            v
++-----------+----------+
+|    Continue Loop    |         (Ga door met de hoofdloop)
++-----------+----------+
+            |
+            v
+   +------------------+
+   |    send_lyrics() |         (Verstuur songteksten naar de client)
+   +--------+---------+
+            |
+     +------|------+
+     |      v      |
++----+-------------+-------+
+|   Failed to Send Lyrics |    (Kan songteksten niet verzenden)
+|       (exit program)     |
++--------------------------+
+            |
+            v
++-----------+----------+
+|      Check      |
+|   Send Status   |
++-----------+----------+
+            |
+     +------|------+
+     |      v      |
++----+-------------+-------+
+|       Success        |       (Succesvol verzonden)
++----------------------+
+            |
+            v
++-----------+----------+
+|  Wait 200ms for Next |       (Wacht 200 ms voor volgende poging)
+|      Send Attempt    |
++-----------+----------+
+            |
+            v
+   +------------------+
+   |  Continue Loop   |         (Ga door met de hoofdloop)
+   +------------------+
