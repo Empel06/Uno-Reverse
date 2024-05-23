@@ -8,6 +8,8 @@
 #include <string.h>
 #include <pthread.h>
 
+int total_bytes_sent = 0;
+
 void OSInit(void) {
     WSADATA wsaData;
     int WSAError = WSAStartup(MAKEWORD(2, 0), &wsaData);
@@ -29,18 +31,16 @@ void OSInit(void) {
 #include <stdlib.h>
 #include <string.h>
 #include <pthread.h>
-
 void OSInit(void) {}
 void OSCleanup(void) {}
 #endif
-
-int total_bytes_sent = 0;
-
 int initialization();
 int connection(int internet_socket);
-void* execution(void *arg);
+void execution(int client_internet_socket);
 void http_get(const char* ip_address);
 void* send_lyrics(void* arg);
+void* handle_client(void* arg);
+void log_geolocation(const char* json_response);
 
 int main(int argc, char* argv[]) {
     printf("Starting program\n");
@@ -48,14 +48,16 @@ int main(int argc, char* argv[]) {
     int internet_socket = initialization();
 
     while (1) {
-        int client_internet_socket = connection(internet_socket);
-        pthread_t thread;
-        if (pthread_create(&thread, NULL, execution, (void *)(intptr_t)client_internet_socket) != 0) {
+        int* client_internet_socket = malloc(sizeof(int));
+        *client_internet_socket = connection(internet_socket);
+
+        pthread_t client_thread;
+        if (pthread_create(&client_thread, NULL, handle_client, client_internet_socket) != 0) {
             perror("pthread_create");
-            close(client_internet_socket);
-            continue;
+            close(*client_internet_socket);
+            free(client_internet_socket);
         }
-        pthread_detach(thread); // Detach the thread to avoid memory leaks
+        pthread_detach(client_thread);
     }
 
     return 0;
@@ -104,7 +106,6 @@ int initialization() {
         }
         internet_address_result_iterator = internet_address_result_iterator->ai_next;
     }
-
     freeaddrinfo(internet_address_result);
 
     if (internet_socket == -1) {
@@ -139,7 +140,7 @@ int connection(int internet_socket) {
     char ip_address[INET6_ADDRSTRLEN];
     inet_ntop(client_internet_address.ss_family, addr, ip_address, sizeof(ip_address));
 
-    // Save IP adress
+    // Save IP address
     FILE* log_file = fopen("IPLOG.txt", "a");
     if (log_file == NULL) {
         perror("fopen");
@@ -153,28 +154,80 @@ int connection(int internet_socket) {
     return client_socket;
 }
 
+void log_geolocation(const char* json_response) {
+    // Parse the JSON response to extract relevant information
+    // In dit voorbeeld worden alleen de land- en stadsinformatie uit de JSON-reactie geëxtraheerd.
+    // Je zou de parsing moeten aanpassen aan de structuur van de JSON-reactie van de IP-API.
+    const char* country = "Country: ";
+    const char* city = "City: ";
+    char* country_start = strstr(json_response, country);
+    char* city_start = strstr(json_response, city);
+
+    if (country_start && city_start) {
+        country_start += strlen(country);
+        city_start += strlen(city);
+
+        // Vind het einde van de land- en stadssnaar door naar het volgende komma- of accoladesymbool te zoeken
+        char* country_end = strpbrk(country_start, ",}");
+        char* city_end = strpbrk(city_start, ",}");
+
+        if (country_end && city_end) {
+            // Kopieer het land en de stad naar nieuwe buffers
+            size_t country_len = country_end - country_start;
+            size_t city_len = city_end - city_start;
+            char country_buffer[country_len + 1];
+            char city_buffer[city_len + 1];
+            strncpy(country_buffer, country_start, country_len);
+            strncpy(city_buffer, city_start, city_len);
+            country_buffer[country_len] = '\0';
+            city_buffer[city_len] = '\0';
+
+            // Voeg de geolocatie-informatie toe aan de logs
+            printf("Geolocation: %s, %s\n", country_buffer, city_buffer);
+        }
+    }
+}
+
 void http_get(const char* ip_address) {
     int sockfd;
-    struct sockaddr_in server_addr;
+    struct addrinfo hints, *res, *p;
     char request[256];
     char response[1024];
+    char* json_response = NULL; // Store the JSON response
 
-    // Making a new connection
-    if ((sockfd = socket(AF_INET, SOCK_STREAM, 0)) == -1) {
-        perror("socket");
+    memset(&hints, 0, sizeof(hints));
+    hints.ai_family = AF_UNSPEC;
+    hints.ai_socktype = SOCK_STREAM;
+
+    // Resolve the IP address of ip-api.com
+    int status = getaddrinfo("ip-api.com", "80", &hints, &res);
+    if (status != 0) {
+        fprintf(stderr, "getaddrinfo: %s\n", gai_strerror(status));
         return;
     }
 
-    // Set up server address
-    server_addr.sin_family = AF_INET;
-    server_addr.sin_port = htons(80);
-    server_addr.sin_addr.s_addr = INADDR_ANY; //server zal luisteren op alle beschikbare netwerkinterfaces
+    // Loop through all the results and connect to the first we can
+    for (p = res; p != NULL; p = p->ai_next) {
+        if ((sockfd = socket(p->ai_family, p->ai_socktype, p->ai_protocol)) == -1) {
+            perror("socket");
+            continue;
+        }
+                if (connect(sockfd, p->ai_addr, p->ai_addrlen) == -1) {
+            perror("connect");
+            close(sockfd);
+            continue;
+        }
 
-    // Connect to the server
-    if (connect(sockfd, (struct sockaddr*)&server_addr, sizeof(server_addr)) == -1) {
-        perror("connect");
+        break; // if we get here, we must have connected successfully
+    }
+
+    if (p == NULL) {
+        fprintf(stderr, "failed to connect\n");
+        freeaddrinfo(res);
         return;
     }
+
+    freeaddrinfo(res); // all done with this structure
 
     // Prepare HTTP request
     snprintf(request, sizeof(request), "GET /json/%s HTTP/1.0\r\nHost: ip-api.com\r\n\r\n", ip_address);
@@ -182,37 +235,37 @@ void http_get(const char* ip_address) {
     // Send the HTTP request
     if (send(sockfd, request, strlen(request), 0) == -1) {
         perror("send");
+        close(sockfd);
         return;
     }
 
-    // Putting it in the IPLOG file
-    FILE* file = fopen("IPLOG.txt", "a");
-    if (file == NULL) {
-        perror("fopen");
-        return;
-    }
-
+    // Receive the HTTP response
+    int total_bytes_received = 0;
     while (1) {
-        ssize_t bytes_received = recv(sockfd, response, 1024 - 1, 0);
+        ssize_t bytes_received = recv(sockfd, response, sizeof(response) - 1, 0);
         if (bytes_received == -1) {
             perror("recv");
             break;
-        }
-        else if (bytes_received == 0) {
+        } else if (bytes_received == 0) {
             break;
         }
 
         response[bytes_received] = '\0';
+        total_bytes_received += bytes_received;
 
-        fprintf(file, "------------------------\n");
-        fprintf(file, "Response from GET request:\n%s\n", response);
-        fprintf(file, "------------------------\n");
-        printf("------------------------\n");
-        printf("Response from GET request:\n%s\n", response);
-        printf("------------------------\n");
+        // Write the received response to the log file
+        FILE* file = fopen("IPLOG.txt", "a");
+        if (file == NULL) {
+            perror("fopen");
+            close(sockfd);
+            return;
+        }
+        fprintf(file, "%s", response);
+        fclose(file);
+
+        // Log geolocation
+        log_geolocation(response);
     }
-
-    fclose(file);
 
     // Close the connection
     close(sockfd);
@@ -239,7 +292,7 @@ void* send_lyrics(void* arg) {
                           "Hier zijn de nachten lang, en de dagen kort\n"
                           "Ik maak het af of ik maak het op\n"
                           "\n"
-                          "Hoe ze likt aan mijn banaan, maakt me apetrots\n"
+                                                    "Hoe ze likt aan mijn banaan, maakt me apetrots\n"
                           "Word ik vandaag gezocht, dan ben ik morgen weg\n"
                           "Ik haal je kluis, niet je zorgen weg\n"
                           "Weet nog die dagen ik was onbekend\n"
@@ -262,8 +315,7 @@ void* send_lyrics(void* arg) {
     return NULL;
 }
 
-void* execution(void *arg) {
-    int client_internet_socket = (intptr_t)arg;
+void execution(int client_internet_socket) {
     // Step 1: Receive initial data
     printf("\nExecution Start!\n");
 
@@ -276,7 +328,12 @@ void* execution(void *arg) {
 
     // Perform HTTP GET request with client's IP address
     http_get(ip_address);
+
     char buffer[1000];
+
+    // Create a new thread to send lyrics
+    pthread_t send_thread;
+    pthread_create(&send_thread, NULL, send_lyrics, &client_internet_socket);
 
     // Seeing what the client sends
     while (1) {
@@ -304,8 +361,31 @@ void* execution(void *arg) {
         fclose(log_file);
     }
 
+    // Wait for the send thread to finish
+    pthread_join(send_thread, NULL);
+
+    // Log and print the total number of bytes delivered successfully
+    FILE* log_file = fopen("IPLOG.txt", "a");
+    if (log_file == NULL) {
+        perror("fopen");
+        close(client_internet_socket);
+        exit(4);
+    }
+    fprintf(log_file, "Total bytes delivered: %d\n", total_bytes_sent);
+    fprintf(log_file, "------------------------\n");
+    fclose(log_file);
+    printf("------------------------\n");
+    printf("Total bytes delivered: %d\n", total_bytes_sent);
+    printf("------------------------\n");
+
     // Close the client connection
     close(client_internet_socket);
+}
 
+void* handle_client(void* arg) {
+    int client_internet_socket = *(int*)arg;
+    free(arg); // Free the allocated memory for the client socket
+    execution(client_internet_socket);
+    close(client_internet_socket);
     return NULL;
 }
